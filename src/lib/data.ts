@@ -5,7 +5,8 @@
  * and keeps every metals.dev call funnelled through the caching logic.
  *
  * The stored history is in USD (the API's native unit); this layer converts it
- * to SAR using the live USD->SAR rate returned by the latest endpoint.
+ * to the display currency using the live USD->currency rate returned by the
+ * latest endpoint.
  */
 
 import { LocalStorage } from "@raycast/api";
@@ -13,7 +14,7 @@ import { fetchLatestGold, SAR_PER_USD_PEG } from "./api";
 import { AVERAGE_WINDOWS_DAYS, computeAverages, loadStoredSeries, syncSeries } from "./history";
 import { todayIso } from "./dates";
 
-const LATEST_KEY = "gold-latest-sar";
+const LATEST_KEY = "gold-latest";
 /**
  * Serve a cached spot price for this long before hitting the API again (ms).
  * This is a daily tracker, so hours of staleness is fine and it keeps casual
@@ -22,31 +23,31 @@ const LATEST_KEY = "gold-latest-sar";
 const LATEST_TTL_MS = 12 * 60 * 60 * 1000;
 
 interface CachedLatest {
-  pricePerTroyOunceSar: number;
-  usdToSarRate: number;
+  pricePerTroyOunce: number;
+  usdToLocalRate: number;
   timestamp?: string;
   cachedAt: number;
 }
 
-/** A period average expressed in SAR, ready for the UI. */
-export interface SarPeriodAverage {
+/** A period average expressed in the display currency, ready for the UI. */
+export interface PeriodAverage {
   /** Window length in days (30/90/180/365). */
   days: number;
-  /** Mean gold price per troy ounce in SAR over the window, or null if no data. */
-  averagePerTroyOunceSar: number | null;
+  /** Mean gold price per troy ounce in the display currency, or null if no data. */
+  averagePerTroyOunce: number | null;
   /** Number of daily data points that fell inside the window. */
   sampleCount: number;
 }
 
 export interface GoldData {
-  /** Current gold spot price per troy ounce, in SAR. */
-  latestPerTroyOunceSar: number;
+  /** Current gold spot price per troy ounce, in the display currency. */
+  latestPerTroyOunce: number;
   /** Freshness of the spot price (from the API, or our cache time). */
   asOf: string;
-  /** Previous close used for the day's change, in SAR, or null if unknown. */
-  previousClosePerTroyOunceSar: number | null;
-  /** Averages over 1M/3M/6M/1Y, per troy ounce in SAR. */
-  averages: SarPeriodAverage[];
+  /** Previous close used for the day's change, in the display currency, or null. */
+  previousClosePerTroyOunce: number | null;
+  /** Averages over 1M/3M/6M/1Y, per troy ounce in the display currency. */
+  averages: PeriodAverage[];
   /** Number of daily points backing the averages. */
   historyPoints: number;
   /** Set if the history sync failed; averages then come from cached data. */
@@ -65,11 +66,11 @@ async function loadCachedLatest(): Promise<CachedLatest | null> {
 
 async function getLatest(apiKey: string, force: boolean): Promise<CachedLatest> {
   const cached = await loadCachedLatest();
-  if (!force && cached && typeof cached.usdToSarRate === "number" && Date.now() - cached.cachedAt < LATEST_TTL_MS) {
+  if (!force && cached && typeof cached.usdToLocalRate === "number" && Date.now() - cached.cachedAt < LATEST_TTL_MS) {
     return cached;
   }
-  const { pricePerTroyOunceSar, usdToSarRate, timestamp } = await fetchLatestGold(apiKey);
-  const fresh: CachedLatest = { pricePerTroyOunceSar, usdToSarRate, timestamp, cachedAt: Date.now() };
+  const { pricePerTroyOunce, usdToLocalRate, timestamp } = await fetchLatestGold(apiKey);
+  const fresh: CachedLatest = { pricePerTroyOunce, usdToLocalRate, timestamp, cachedAt: Date.now() };
   await LocalStorage.setItem(LATEST_KEY, JSON.stringify(fresh));
   return fresh;
 }
@@ -103,18 +104,18 @@ export async function loadGoldData(apiKey: string, force = false): Promise<GoldD
   const latest = await latestPromise; // if this rejects, the whole load fails (no price to show)
   const { series, error } = await syncPromise;
 
-  const rate = latest.usdToSarRate || SAR_PER_USD_PEG;
+  const rate = latest.usdToLocalRate || SAR_PER_USD_PEG;
   const prevCloseUsd = previousCloseUsd(series);
-  const averages: SarPeriodAverage[] = computeAverages(series).map((avg) => ({
+  const averages: PeriodAverage[] = computeAverages(series).map((avg) => ({
     days: avg.days,
     sampleCount: avg.sampleCount,
-    averagePerTroyOunceSar: avg.averagePerTroyOunceUsd === null ? null : avg.averagePerTroyOunceUsd * rate,
+    averagePerTroyOunce: avg.averagePerTroyOunceUsd === null ? null : avg.averagePerTroyOunceUsd * rate,
   }));
 
   return {
-    latestPerTroyOunceSar: latest.pricePerTroyOunceSar,
+    latestPerTroyOunce: latest.pricePerTroyOunce,
     asOf: latest.timestamp ?? new Date(latest.cachedAt).toISOString(),
-    previousClosePerTroyOunceSar: prevCloseUsd === null ? null : prevCloseUsd * rate,
+    previousClosePerTroyOunce: prevCloseUsd === null ? null : prevCloseUsd * rate,
     averages,
     historyPoints: Object.keys(series).length,
     historyError: error,

@@ -1,12 +1,13 @@
 /**
  * Domain constants and pure helpers for converting a troy-ounce gold spot
- * price into per-gram prices for the karats commonly quoted in Saudi Arabia.
+ * price into per-gram prices for the karats commonly quoted in Gulf gold
+ * markets.
  */
 
 /** Grams in one troy ounce (the unit gold spot prices are quoted in). */
 export const GRAMS_PER_TROY_OUNCE = 31.1034768;
 
-/** Karats we surface, matching the standard Saudi retail breakdown. */
+/** Karats we surface, matching the common Gulf retail breakdown. */
 export const KARATS = [24, 22, 21, 18] as const;
 
 export type Karat = (typeof KARATS)[number];

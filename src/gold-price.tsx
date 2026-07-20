@@ -12,6 +12,7 @@ import { usePromise } from "@raycast/utils";
 import { useRef, useState } from "react";
 import { loadGoldData } from "./lib/data";
 import { KARATS, Karat, pricePerGramForKarat } from "./lib/gold";
+import { DEFAULT_CURRENCY, formatCurrency } from "./lib/currency";
 
 interface Preferences {
   apiKey: string;
@@ -24,20 +25,19 @@ const WINDOW_LABEL: Record<number, string> = {
   365: "1 Year",
 };
 
-const sarFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "SAR",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function formatSar(value: number): string {
-  return sarFormatter.format(value);
-}
-
-/** Plain 2-decimal number for clipboard (easy to paste into a sheet). */
+/** Plain 2-decimal number, e.g. "483.54". */
 function formatPlain(value: number): string {
   return value.toFixed(2);
+}
+
+/** Descriptive clipboard text for the current price of a karat. */
+function copyTextCurrent(karat: Karat, perGram: number): string {
+  return `Gold price today (${karat}K): ${formatPlain(perGram)} ${DEFAULT_CURRENCY} per gram`;
+}
+
+/** Descriptive clipboard text for a period average of a karat. */
+function copyTextAverage(periodLabel: string, karat: Karat, perGram: number): string {
+  return `Gold price ${periodLabel} average (${karat}K): ${formatPlain(perGram)} ${DEFAULT_CURRENCY} per gram`;
 }
 
 function formatAsOf(iso: string): string {
@@ -68,9 +68,9 @@ export default function Command() {
   };
 
   const change =
-    data && data.previousClosePerTroyOunceSar ? data.latestPerTroyOunceSar - data.previousClosePerTroyOunceSar : null;
+    data && data.previousClosePerTroyOunce ? data.latestPerTroyOunce - data.previousClosePerTroyOunce : null;
   const changePct =
-    change !== null && data?.previousClosePerTroyOunceSar ? (change / data.previousClosePerTroyOunceSar) * 100 : null;
+    change !== null && data?.previousClosePerTroyOunce ? (change / data.previousClosePerTroyOunce) * 100 : null;
   const changeIcon = change === null ? undefined : change >= 0 ? Icon.ArrowUp : Icon.ArrowDown;
   const changeColor = change === null ? undefined : change >= 0 ? Color.Green : Color.Red;
 
@@ -95,11 +95,11 @@ export default function Command() {
     </>
   );
 
-  // Per-item panel: Enter copies the value (when present), then the shared
-  // refresh actions.
-  const itemActions = (copyLabel: string, copyValue: number | null) => (
+  // Per-item panel: Enter copies a descriptive line (when data is present),
+  // then the shared refresh actions.
+  const itemActions = (copyTitle: string, copyContent: string | null) => (
     <ActionPanel>
-      {copyValue !== null && <Action.CopyToClipboard title={`Copy ${copyLabel}`} content={formatPlain(copyValue)} />}
+      {copyContent !== null && <Action.CopyToClipboard title={copyTitle} content={copyContent} />}
       {refreshActions}
     </ActionPanel>
   );
@@ -133,18 +133,20 @@ export default function Command() {
       }
     >
       <List.Section
-        title="Current Price · per gram (SAR)"
+        title={`Current Price · per gram (${DEFAULT_CURRENCY})`}
         subtitle={data ? `As of ${formatAsOf(data.asOf)}` : undefined}
       >
         {data &&
           KARATS.map((k) => {
-            const perGram = pricePerGramForKarat(data.latestPerTroyOunceSar, k);
-            const accessories: List.Item.Accessory[] = [{ tag: { value: formatSar(perGram), color: Color.Yellow } }];
+            const perGram = pricePerGramForKarat(data.latestPerTroyOunce, k);
+            const accessories: List.Item.Accessory[] = [
+              { tag: { value: formatCurrency(perGram), color: Color.Yellow } },
+            ];
             if (k === 24 && change !== null && changePct !== null) {
               accessories.unshift({
                 icon: changeIcon ? { source: changeIcon, tintColor: changeColor } : undefined,
                 text: {
-                  value: `${change >= 0 ? "+" : ""}${formatSar(change)} (${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)`,
+                  value: `${change >= 0 ? "+" : ""}${formatCurrency(change)} (${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)`,
                   color: changeColor,
                 },
                 tooltip: "Change vs. previous close (24K)",
@@ -157,20 +159,20 @@ export default function Command() {
                 title={`${k}K`}
                 subtitle={k === 24 ? "Pure gold" : `${k}/24 purity`}
                 accessories={accessories}
-                actions={itemActions(`${k}K Price (SAR)`, perGram)}
+                actions={itemActions(`Copy ${k}K Price`, copyTextCurrent(k, perGram))}
               />
             );
           })}
       </List.Section>
 
       <List.Section
-        title={`Averages · ${karat}K per gram (SAR)`}
+        title={`Averages · ${karat}K per gram (${DEFAULT_CURRENCY})`}
         subtitle={data?.historyError ? "History unavailable — showing cached data" : "Based on daily closes"}
       >
         {data &&
           data.averages.map((avg) => {
             const perGram =
-              avg.averagePerTroyOunceSar !== null ? pricePerGramForKarat(avg.averagePerTroyOunceSar, karat) : null;
+              avg.averagePerTroyOunce !== null ? pricePerGramForKarat(avg.averagePerTroyOunce, karat) : null;
             return (
               <List.Item
                 key={avg.days}
@@ -182,14 +184,16 @@ export default function Command() {
                 accessories={[
                   {
                     tag: {
-                      value: perGram !== null ? formatSar(perGram) : "—",
+                      value: perGram !== null ? formatCurrency(perGram) : "—",
                       color: perGram !== null ? Color.Blue : Color.SecondaryText,
                     },
                   },
                 ]}
                 actions={itemActions(
-                  `${WINDOW_LABEL[avg.days] ?? `${avg.days}-Day`} Average (${karat}K, SAR)`,
-                  perGram,
+                  "Copy Average",
+                  perGram === null
+                    ? null
+                    : copyTextAverage(WINDOW_LABEL[avg.days] ?? `${avg.days}-day`, karat, perGram),
                 )}
               />
             );

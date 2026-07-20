@@ -1,10 +1,12 @@
-# Gold Price SAR
+# Gold Price
 
-See the daily gold price in **Saudi Riyal (SAR) per gram** for the karats commonly quoted in Saudi Arabia — **24K, 22K, 21K, 18K** — along with **1-month, 3-month, 6-month, and 1-year averages**.
+See the daily gold price **per gram** for the karats commonly quoted in Gulf gold markets — **24K, 22K, 21K, 18K** — along with **1-month, 3-month, 6-month, and 1-year averages**.
+
+> Prices are currently shown in **Saudi Riyal (SAR)**. A selectable display currency is planned.
 
 ## Features
 
-- **Live spot price** per gram for 24K / 22K / 21K / 18K, in SAR.
+- **Live spot price** per gram for 24K / 22K / 21K / 18K.
 - **Daily change** vs. the previous close (on the 24K row).
 - **Period averages** (1M / 3M / 6M / 1Y) computed from real daily closes.
 - **Karat selector** — switch which karat the averages are shown for.
@@ -19,7 +21,7 @@ This extension uses the [metals.dev](https://metals.dev) API.
 
 ## How the data works
 
-- **Current price** comes from the metals.dev `latest` endpoint, returned directly in SAR per troy ounce, then converted to per-gram per karat.
+- **Current price** comes from the metals.dev `latest` endpoint, returned directly in the display currency per troy ounce, then converted to per-gram per karat.
 - **Averages** are computed from a rolling ~1-year daily history (the metals.dev `timeseries` endpoint), stored locally. Completed months are immutable and cached permanently; only recent days are refetched, so day-to-day usage costs ~1–2 requests.
 - Prices are indicative spot values and may differ from local retail prices, which include making charges and dealer margins.
 

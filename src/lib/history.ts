@@ -1,8 +1,8 @@
 /**
  * Builds and maintains a rolling ~1-year daily gold-price series (per troy
  * ounce, in USD — the API's native unit) in Raycast LocalStorage, then derives
- * period averages from it. Conversion to SAR happens at the call site so the
- * stored history is currency-canonical and rate-independent.
+ * period averages from it. Conversion to the display currency happens at the
+ * call site so the stored history is currency-canonical and rate-independent.
  *
  * The series is fetched incrementally to respect the 100-request/month free
  * tier: on first run the full year is pulled in ~13 chunks; afterwards only the
@@ -93,7 +93,8 @@ export async function syncSeries(
   return { series: finalSeries, requestsMade };
 }
 
-export interface PeriodAverage {
+/** A period average in USD/toz (the canonical unit), before currency conversion. */
+export interface PeriodAverageUsd {
   /** Window length in days (30/90/180/365). */
   days: number;
   /** Mean gold price per troy ounce in USD over the window, or null if no data. */
@@ -106,7 +107,7 @@ export interface PeriodAverage {
 export const AVERAGE_WINDOWS_DAYS = [30, 90, 180, 365] as const;
 
 /** Compute the mean per-troy-ounce USD price over each averaging window. */
-export function computeAverages(series: GoldSeries): PeriodAverage[] {
+export function computeAverages(series: GoldSeries): PeriodAverageUsd[] {
   const today = todayIso();
   const entries = Object.entries(series);
   return AVERAGE_WINDOWS_DAYS.map((days) => {
