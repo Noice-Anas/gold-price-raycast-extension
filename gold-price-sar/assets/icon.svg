@@ -1,0 +1,39 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2b2f"/>
+      <stop offset="1" stop-color="#151517"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFE79A"/>
+      <stop offset="0.45" stop-color="#F5C542"/>
+      <stop offset="0.75" stop-color="#D99B20"/>
+      <stop offset="1" stop-color="#B87710"/>
+    </linearGradient>
+    <linearGradient id="goldShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="0.4" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- stacked gold bars -->
+  <g transform="translate(256 300)">
+    <g transform="translate(-118 44)">
+      <path d="M-70 0 L70 0 L98 46 L-98 46 Z" fill="url(#gold)" stroke="#8a5a0c" stroke-width="4"/>
+    </g>
+    <g transform="translate(118 44)">
+      <path d="M-70 0 L70 0 L98 46 L-98 46 Z" fill="url(#gold)" stroke="#8a5a0c" stroke-width="4"/>
+    </g>
+    <g transform="translate(0 -12)">
+      <path d="M-78 0 L78 0 L108 50 L-108 50 Z" fill="url(#gold)" stroke="#8a5a0c" stroke-width="4"/>
+      <path d="M-78 0 L78 0 L108 50 L-108 50 Z" fill="url(#goldShine)"/>
+    </g>
+  </g>
+
+  <!-- upward trend line -->
+  <polyline points="150,196 214,232 274,168 350,120"
+    fill="none" stroke="#7CE3A4" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="350,104 384,112 356,140" fill="#7CE3A4"/>
+</svg>
