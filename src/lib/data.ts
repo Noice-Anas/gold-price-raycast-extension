@@ -16,10 +16,10 @@ import { todayIso } from "./dates";
 const LATEST_KEY = "gold-latest-sar";
 /**
  * Serve a cached spot price for this long before hitting the API again (ms).
- * This is a daily tracker, so a few hours of staleness is fine and it keeps
- * casual re-opens from spending quota; "Refresh" always forces a live fetch.
+ * This is a daily tracker, so hours of staleness is fine and it keeps casual
+ * re-opens from spending quota; a hard refresh always forces a live fetch.
  */
-const LATEST_TTL_MS = 6 * 60 * 60 * 1000;
+const LATEST_TTL_MS = 12 * 60 * 60 * 1000;
 
 interface CachedLatest {
   pricePerTroyOunceSar: number;

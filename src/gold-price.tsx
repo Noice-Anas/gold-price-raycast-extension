@@ -1,6 +1,15 @@
-import { Action, ActionPanel, Color, Icon, List, getPreferenceValues, openExtensionPreferences } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Color,
+  Icon,
+  Keyboard,
+  List,
+  getPreferenceValues,
+  openExtensionPreferences,
+} from "@raycast/api";
 import { usePromise } from "@raycast/utils";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { loadGoldData } from "./lib/data";
 import { KARATS, Karat, pricePerGramForKarat } from "./lib/gold";
 
@@ -26,6 +35,11 @@ function formatSar(value: number): string {
   return sarFormatter.format(value);
 }
 
+/** Plain 2-decimal number for clipboard (easy to paste into a sheet). */
+function formatPlain(value: number): string {
+  return value.toFixed(2);
+}
+
 function formatAsOf(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -36,9 +50,22 @@ export default function Command() {
   const { apiKey } = getPreferenceValues<Preferences>();
   const [karat, setKarat] = useState<Karat>(24);
 
-  const { data, isLoading, error, revalidate } = usePromise(async () => loadGoldData(apiKey), [], {
-    failureToastOptions: { title: "Could not load gold prices" },
-  });
+  // A hard refresh sets this flag so the next load bypasses the caches/TTLs.
+  const forceRef = useRef(false);
+  const { data, isLoading, error, revalidate } = usePromise(
+    async () => {
+      const force = forceRef.current;
+      forceRef.current = false;
+      return loadGoldData(apiKey, force);
+    },
+    [],
+    { failureToastOptions: { title: "Could not load gold prices" } },
+  );
+
+  const hardRefresh = () => {
+    forceRef.current = true;
+    revalidate();
+  };
 
   const change =
     data && data.previousClosePerTroyOunceSar ? data.latestPerTroyOunceSar - data.previousClosePerTroyOunceSar : null;
@@ -47,11 +74,33 @@ export default function Command() {
   const changeIcon = change === null ? undefined : change >= 0 ? Icon.ArrowUp : Icon.ArrowDown;
   const changeColor = change === null ? undefined : change >= 0 ? Color.Green : Color.Red;
 
-  const sharedActions = (
-    <ActionPanel>
-      <Action title="Refresh" icon={Icon.ArrowClockwise} onAction={() => revalidate()} />
+  // The refresh / preferences actions shared by every item. Two hard-refresh
+  // entries register both ⌘R and ⌘↵ for the same live-fetch action.
+  const refreshActions = (
+    <>
+      <Action
+        title="Hard Refresh"
+        icon={Icon.ArrowClockwise}
+        onAction={hardRefresh}
+        shortcut={Keyboard.Shortcut.Common.Refresh}
+      />
+      <Action
+        title="Hard Refresh (Live)"
+        icon={Icon.ArrowClockwise}
+        onAction={hardRefresh}
+        shortcut={{ modifiers: ["cmd"], key: "return" }}
+      />
       <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
       <Action.OpenInBrowser title="Get / Manage API Key" url="https://metals.dev/pricing" />
+    </>
+  );
+
+  // Per-item panel: Enter copies the value (when present), then the shared
+  // refresh actions.
+  const itemActions = (copyLabel: string, copyValue: number | null) => (
+    <ActionPanel>
+      {copyValue !== null && <Action.CopyToClipboard title={`Copy ${copyLabel}`} content={formatPlain(copyValue)} />}
+      {refreshActions}
     </ActionPanel>
   );
 
@@ -62,7 +111,7 @@ export default function Command() {
           icon={Icon.ExclamationMark}
           title="Could not load gold prices"
           description={`${error.message}\n\nCheck your metals.dev API key in preferences, then refresh.`}
-          actions={sharedActions}
+          actions={<ActionPanel>{refreshActions}</ActionPanel>}
         />
       </List>
     );
@@ -108,7 +157,7 @@ export default function Command() {
                 title={`${k}K`}
                 subtitle={k === 24 ? "Pure gold" : `${k}/24 purity`}
                 accessories={accessories}
-                actions={sharedActions}
+                actions={itemActions(`${k}K Price (SAR)`, perGram)}
               />
             );
           })}
@@ -138,7 +187,10 @@ export default function Command() {
                     },
                   },
                 ]}
-                actions={sharedActions}
+                actions={itemActions(
+                  `${WINDOW_LABEL[avg.days] ?? `${avg.days}-Day`} Average (${karat}K, SAR)`,
+                  perGram,
+                )}
               />
             );
           })}

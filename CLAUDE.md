@@ -4,7 +4,7 @@ Raycast extension showing the daily gold price in SAR per gram (24K/22K/21K/18K)
 
 ## Commands
 
-Run from the `gold-price-sar/` directory:
+Run from the repository root:
 
 - `npm run dev` — run the extension live in Raycast (`ray develop`).
 - `npm run build` — bundle + typecheck (`ray build`).
@@ -28,11 +28,21 @@ Lint/build/publish require the Raycast app installed and the user signed in.
 - `lib/history.ts` — rolling ~1-year daily series in LocalStorage; incremental sync + averages.
 - `lib/data.ts` — orchestrates latest (30-min TTL cache) + history sync into one load.
 
+## Currency: timeseries has no SAR
+
+`/v1/timeseries` returns gold in **USD/toz only** and its `currencies` map does NOT include SAR (live-verified). So history is stored in USD (`lib/history.ts`) and converted to SAR at the boundary (`lib/data.ts`) using the USD→SAR rate from `/latest` (`currencies.USD` ≈ 3.75), falling back to `SAR_PER_USD_PEG = 3.75` in `lib/api.ts`. `/latest?currency=SAR` gives `metals.gold` directly in SAR.
+
 ## Quota strategy (keep it inside 100 req/mo)
 
-- Latest spot: cached 30 min.
-- History: completed days are immutable and cached permanently; only days since the last sync are refetched, and the whole sync is skipped while younger than a 12h TTL. First run pulls ~1 year in ~13 chunks; steady state ~1–2 requests/day.
-- Averages are computed on the per-troy-ounce SAR value, then converted to per-gram/karat at render time (linear, so average-then-convert == convert-then-average).
+- Latest spot: cached **12h** (`LATEST_TTL_MS`).
+- History: completed days are immutable and cached permanently; only days since the last sync are refetched, and the whole sync is skipped while younger than a **12h** TTL. First run pulls ~1 year in ~13 chunks; steady state ~1–2 requests/day.
+- Averages are computed on the per-troy-ounce USD value, converted to SAR, then to per-gram/karat at render (all linear, so order is irrelevant).
+
+## Interaction model (`gold-price.tsx`)
+
+- **Enter** on any row → copy its plain 2-decimal SAR value (`Action.CopyToClipboard`).
+- **⌘R** and **⌘↵** → hard refresh (bypasses caches/TTLs via a `forceRef` read inside the usePromise loader, passed as `loadGoldData(apiKey, force)`).
+- Karat dropdown (search-bar accessory) re-derives the averages client-side; no refetch.
 
 ## Publishing checklist
 
