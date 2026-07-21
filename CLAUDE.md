@@ -36,15 +36,15 @@ The `apiKey` preference is a **`password` type**, which Raycast stores in the ma
 
 So the preference is `required: false` and the key is resolved through `lib/apiKey.ts`:
 
-- **Preference wins**: a non-empty `apiKey` preference is used and **mirrored into LocalStorage** (`metals-dev-api-key`) as a backup — written before it can vanish.
-- **LocalStorage is the fallback / durable store**: if the preference is empty (first run, or lost), the stored copy is used. There is **no API to write back into a preference**, so once the preference is lost, LocalStorage is the source of truth.
-- **In-app form**: with `required: false`, Raycast won't force the prompt, so `gold-price.tsx` shows `ApiKeyForm` when `resolveApiKey()` returns `null`; submitting persists via `saveApiKey` to LocalStorage. LocalStorage is a local **encrypted** DB scoped to the extension.
+- **Preference wins _only when it changed_**: a non-empty `apiKey` preference becomes the active key **only if it differs from the last value we reconciled**, tracked in LocalStorage under `metals-dev-api-key-pref-seen`. On a change it's written to the active key (`metals-dev-api-key`) and to the seen-marker. This keeps preference edits authoritative **without** letting an _unchanged_ (possibly stale) preference clobber a newer key the user entered via the in-app form.
+- **LocalStorage is the fallback / durable store**: if the preference is empty (first run, or lost), or unchanged since last seen, the stored active key is used. There is **no API to write back into a preference**, so once the preference is lost, LocalStorage is the source of truth. Returns `null` only when no key exists anywhere.
+- **In-app form**: with `required: false`, Raycast won't force the prompt, so `gold-price.tsx` shows `ApiKeyForm` when `resolveApiKey()` returns `null`; submitting persists via `saveApiKey` to LocalStorage, and because the preference is unchanged that form key now survives future launches. LocalStorage is a local **encrypted** DB scoped to the extension.
 
 ## Currency: history is USD-canonical
 
 `/v1/timeseries` returns gold in **USD/toz only** and its `currencies` map does NOT include most fiat currencies (live-verified). So history is stored in USD (`lib/history.ts`) and converted to the display currency at the boundary (`lib/data.ts`) using the USD→currency rate from `/latest` (`currencies.USD`, e.g. ≈ 3.75 for SAR). `/latest?currency=<selected>` gives `metals.gold` directly in the display currency. Symbols are currency-neutral (`pricePerTroyOunce`, `usdToLocalRate`, `averagePerTroyOunce`).
 
-**Rate fallback is SAR-only.** `fetchLatestGold` returns `usdToLocalRate: number | null`; the `SAR_PER_USD_PEG = 3.75` fallback (`lib/api.ts`) applies **only when `currency === "SAR"`**. For any other currency a missing live rate yields `null`, and `data.ts` then degrades gracefully — the live spot price still shows (it's already in the display currency), but averages and the day's change become `null` ("—") rather than being converted at a wrong rate. In practice `/latest` always returns `currencies.USD`, so this is defensive.
+**Rate fallback covers USD and SAR.** `fetchLatestGold` returns `usdToLocalRate: number | null`; when `currencies.USD` is missing it falls back to **`1` for USD** (history is already USD-canonical, so no conversion) and to **`SAR_PER_USD_PEG = 3.75` for SAR** (`lib/api.ts`). For any other currency a missing live rate yields `null`, and `data.ts` then degrades gracefully — the live spot price still shows (it's already in the display currency), but averages and the day's change become `null` ("—") rather than being converted at a wrong rate. In practice `/latest` always returns `currencies.USD`, so this is defensive.
 
 **Latest cache is keyed per currency** (`gold-latest-<currency>`) because price + rate are currency-specific; switching currency is a deliberate cache miss (one `/latest` request, then 12h TTL). History is USD-canonical and **shared across currencies** — switching currency never refetches history.
 
@@ -62,6 +62,17 @@ So the preference is `required: false` and the key is resolved through `lib/apiK
 
 ## Publishing checklist
 
-- Set `author` in `package.json` to the real Raycast handle (ESLint validates it against raycast.com — a placeholder fails lint).
-- Add `metadata/` screenshots (2000×1250) before submitting; the CHANGELOG uses the `{PR_MERGE_DATE}` placeholder.
-- `npm run build && npm run lint` must both pass, then `npm run publish`.
+- Set `author` in `package.json` to the real Raycast handle (ESLint validates it against raycast.com — a placeholder fails lint). Ours: `noice_anas` (GitHub `Noice-Anas`).
+- Add `metadata/` screenshots (**exactly 2000×1250, PNG, <2 MB, 1–6 shots**) before submitting; the CHANGELOG uses the `{PR_MERGE_DATE}` placeholder. The PR's Greptile check also enforces **padding**: the Raycast window must sit **centered with ~12% margin all sides (8–17% range), top/bottom symmetric within 4%** — and it measures the *content* bounding box, so **views whose content is top-heavy (e.g. the API-key form) fail** and shouldn't be used. Best: Raycast's ⌘K "Take Screenshot" action (produces compliant shots natively). Fallback for a macOS window capture: recompose with Pillow — crop the window panel, re-center on a 2000×1250 purple gradient at 12% padding, rounded corners + soft shadow (see `scratchpad/compose.py` from the July 2026 session). `sips` alone can't do this (no compositing); a full-bleed crop leaves ~6% padding and fails.
+- `npm run build && npm run lint` must both pass first.
+
+### Publishing route: manual fork + PR (NOT `npm run publish`)
+
+`npm run publish` (`ray publish`) authorizes the **Raycast CLI** via GitHub OAuth requesting the classic **`repo`** scope — all-or-nothing read/write to **all** public *and private* repos. We avoid granting that. Instead we publish manually with our own `gh` credentials, so the Raycast CLI gets zero account access:
+
+1. `gh repo fork raycast/extensions --clone=false` (upstream default branch is `main`).
+2. Sparse, blobless, shallow clone of the fork (the monorepo is huge): `git clone --depth 1 --filter=blob:none --sparse https://github.com/Noice-Anas/extensions.git`, then `git sparse-checkout set extensions/gold-price`. Use `gh auth setup-git` + HTTPS if SSH keys aren't loaded in the shell.
+3. New branch; copy the extension into `extensions/gold-price/` — the file set = `git ls-files` from this repo **minus `CLAUDE.md`** (internal dev doc, don't ship). `git archive HEAD | tar -x -C .../extensions/gold-price/` is the clean way. `package-lock.json` **is** included (matches how existing monorepo extensions are laid out).
+4. Commit, push to the fork, `gh pr create --repo raycast/extensions --base main --head Noice-Anas:gold-price`.
+
+First submission: **PR [#29634](https://github.com/raycast/extensions/pull/29634)** (opened 2026-07-21). CI checks to watch: `metadata-images` (validates screenshot dims), build/lint, `PR Bot`, Socket Security, Greptile Review. To fix review feedback, push more commits to the `gold-price` branch — the PR updates automatically.
