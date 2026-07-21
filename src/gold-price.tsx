@@ -16,6 +16,7 @@ import { DEFAULT_CURRENCY, formatCurrency } from "./lib/currency";
 
 interface Preferences {
   apiKey: string;
+  currency?: string;
 }
 
 const WINDOW_LABEL: Record<number, string> = {
@@ -31,13 +32,13 @@ function formatPlain(value: number): string {
 }
 
 /** Descriptive clipboard text for the current price of a karat. */
-function copyTextCurrent(karat: Karat, perGram: number): string {
-  return `Gold price today (${karat}K): ${formatPlain(perGram)} ${DEFAULT_CURRENCY} per gram`;
+function copyTextCurrent(karat: Karat, perGram: number, currency: string): string {
+  return `Gold price today (${karat}K): ${formatPlain(perGram)} ${currency} per gram`;
 }
 
 /** Descriptive clipboard text for a period average of a karat. */
-function copyTextAverage(periodLabel: string, karat: Karat, perGram: number): string {
-  return `Gold price ${periodLabel} average (${karat}K): ${formatPlain(perGram)} ${DEFAULT_CURRENCY} per gram`;
+function copyTextAverage(periodLabel: string, karat: Karat, perGram: number, currency: string): string {
+  return `Gold price ${periodLabel} average (${karat}K): ${formatPlain(perGram)} ${currency} per gram`;
 }
 
 function formatAsOf(iso: string): string {
@@ -47,18 +48,19 @@ function formatAsOf(iso: string): string {
 }
 
 export default function Command() {
-  const { apiKey } = getPreferenceValues<Preferences>();
+  const { apiKey, currency: currencyPref } = getPreferenceValues<Preferences>();
+  const currency = currencyPref || DEFAULT_CURRENCY;
   const [karat, setKarat] = useState<Karat>(24);
 
   // A hard refresh sets this flag so the next load bypasses the caches/TTLs.
   const forceRef = useRef(false);
   const { data, isLoading, error, revalidate } = usePromise(
-    async () => {
+    async (selectedCurrency: string) => {
       const force = forceRef.current;
       forceRef.current = false;
-      return loadGoldData(apiKey, force);
+      return loadGoldData(apiKey, selectedCurrency, force);
     },
-    [],
+    [currency],
     { failureToastOptions: { title: "Could not load gold prices" } },
   );
 
@@ -133,20 +135,20 @@ export default function Command() {
       }
     >
       <List.Section
-        title={`Current Price · per gram (${DEFAULT_CURRENCY})`}
+        title={`Current Price · per gram (${currency})`}
         subtitle={data ? `As of ${formatAsOf(data.asOf)}` : undefined}
       >
         {data &&
           KARATS.map((k) => {
             const perGram = pricePerGramForKarat(data.latestPerTroyOunce, k);
             const accessories: List.Item.Accessory[] = [
-              { tag: { value: formatCurrency(perGram), color: Color.Yellow } },
+              { tag: { value: formatCurrency(perGram, currency), color: Color.Yellow } },
             ];
             if (k === 24 && change !== null && changePct !== null) {
               accessories.unshift({
                 icon: changeIcon ? { source: changeIcon, tintColor: changeColor } : undefined,
                 text: {
-                  value: `${change >= 0 ? "+" : ""}${formatCurrency(change)} (${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)`,
+                  value: `${change >= 0 ? "+" : ""}${formatCurrency(change, currency)} (${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)`,
                   color: changeColor,
                 },
                 tooltip: "Change vs. previous close (24K)",
@@ -159,14 +161,14 @@ export default function Command() {
                 title={`${k}K`}
                 subtitle={k === 24 ? "Pure gold" : `${k}/24 purity`}
                 accessories={accessories}
-                actions={itemActions(`Copy ${k}K Price`, copyTextCurrent(k, perGram))}
+                actions={itemActions(`Copy ${k}K Price`, copyTextCurrent(k, perGram, currency))}
               />
             );
           })}
       </List.Section>
 
       <List.Section
-        title={`Averages · ${karat}K per gram (${DEFAULT_CURRENCY})`}
+        title={`Averages · ${karat}K per gram (${currency})`}
         subtitle={data?.historyError ? "History unavailable — showing cached data" : "Based on daily closes"}
       >
         {data &&
@@ -184,7 +186,7 @@ export default function Command() {
                 accessories={[
                   {
                     tag: {
-                      value: perGram !== null ? formatCurrency(perGram) : "—",
+                      value: perGram !== null ? formatCurrency(perGram, currency) : "—",
                       color: perGram !== null ? Color.Blue : Color.SecondaryText,
                     },
                   },
@@ -193,7 +195,7 @@ export default function Command() {
                   "Copy Average",
                   perGram === null
                     ? null
-                    : copyTextAverage(WINDOW_LABEL[avg.days] ?? `${avg.days}-day`, karat, perGram),
+                    : copyTextAverage(WINDOW_LABEL[avg.days] ?? `${avg.days}-day`, karat, perGram, currency),
                 )}
               />
             );

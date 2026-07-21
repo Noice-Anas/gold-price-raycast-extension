@@ -1,6 +1,6 @@
 # CLAUDE.md — Gold Price (Raycast extension)
 
-Raycast extension showing the daily gold price per gram (24K/22K/21K/18K) plus 1/3/6/12-month averages. The display currency is currently SAR (fixed in `lib/currency.ts`); a user-selectable currency is a planned feature. Goal: publish to the Raycast Store.
+Raycast extension showing the daily gold price per gram (24K/22K/21K/18K) plus 1/3/6/12-month averages. The display currency is user-selectable via the `currency` preference (SAR default; options SAR/AED/KWD/QAR/BHD/OMR/USD/EUR/GBP), threaded from `gold-price.tsx` through `loadGoldData`. Goal: publish to the Raycast Store.
 
 ## Commands
 
@@ -16,7 +16,7 @@ Lint/build/publish require the Raycast app installed and the user signed in.
 ## Data source: metals.dev
 
 - Free tier: **100 requests/month**, per-user API key (required preference `apiKey`). Historical is included in the free tier — it costs quota, not money.
-- `GET /v1/latest?currency=<DEFAULT_CURRENCY>&unit=toz` → `metals.gold` = spot per troy ounce, already in the display currency; `currencies.USD` = value of 1 USD in that currency (used to convert the USD-only history).
+- `GET /v1/latest?currency=<selected>&unit=toz` → `metals.gold` = spot per troy ounce, already in the display currency; `currencies.USD` = value of 1 USD in that currency (used to convert the USD-only history).
 - `GET /v1/timeseries?start_date&end_date` → **USD/toz only**, max **30 days per request**. Stored in USD and converted to the display currency downstream (see below).
 
 ## Architecture (`src/`)
@@ -24,14 +24,18 @@ Lint/build/publish require the Raycast app installed and the user signed in.
 - `gold-price.tsx` — the single `view` command (List UI, karat dropdown).
 - `lib/gold.ts` — karat/troy-ounce math (pure).
 - `lib/dates.ts` — UTC ISO date helpers + 30-day chunking.
-- `lib/currency.ts` — `DEFAULT_CURRENCY` (single source of the display currency, currently `"SAR"`) + `formatCurrency(value, currency)`.
-- `lib/api.ts` — metals.dev client (`fetchLatestGold(apiKey, currency)`, `fetchTimeseriesGoldUsd`).
+- `lib/currency.ts` — `DEFAULT_CURRENCY` (fallback + preference default, `"SAR"`), `SUPPORTED_CURRENCIES` (dropdown list; mirror into `package.json`'s `currency` preference `data`), `formatCurrency(value, currency)`.
+- `lib/api.ts` — metals.dev client (`fetchLatestGold(apiKey, currency)` → `usdToLocalRate: number | null`, `fetchTimeseriesGoldUsd`).
 - `lib/history.ts` — rolling ~1-year daily series in LocalStorage; incremental sync + averages (`PeriodAverageUsd`, USD-canonical).
-- `lib/data.ts` — orchestrates latest (12h TTL cache) + history sync into one load; converts to the display currency (`PeriodAverage`).
+- `lib/data.ts` — orchestrates latest (12h TTL cache, keyed per currency `gold-latest-<currency>`) + history sync into one load; converts to the display currency (`PeriodAverage`). `loadGoldData(apiKey, currency, force)`.
 
 ## Currency: history is USD-canonical
 
-`/v1/timeseries` returns gold in **USD/toz only** and its `currencies` map does NOT include most fiat currencies (live-verified). So history is stored in USD (`lib/history.ts`) and converted to the display currency at the boundary (`lib/data.ts`) using the USD→currency rate from `/latest` (`currencies.USD`, e.g. ≈ 3.75 for SAR), falling back to `SAR_PER_USD_PEG = 3.75` in `lib/api.ts`. `/latest?currency=<DEFAULT_CURRENCY>` gives `metals.gold` directly in the display currency. Symbols are currency-neutral (`pricePerTroyOunce`, `usdToLocalRate`, `averagePerTroyOunce`); the SAR peg is the only SAR-specific value and only applies while the currency is SAR.
+`/v1/timeseries` returns gold in **USD/toz only** and its `currencies` map does NOT include most fiat currencies (live-verified). So history is stored in USD (`lib/history.ts`) and converted to the display currency at the boundary (`lib/data.ts`) using the USD→currency rate from `/latest` (`currencies.USD`, e.g. ≈ 3.75 for SAR). `/latest?currency=<selected>` gives `metals.gold` directly in the display currency. Symbols are currency-neutral (`pricePerTroyOunce`, `usdToLocalRate`, `averagePerTroyOunce`).
+
+**Rate fallback is SAR-only.** `fetchLatestGold` returns `usdToLocalRate: number | null`; the `SAR_PER_USD_PEG = 3.75` fallback (`lib/api.ts`) applies **only when `currency === "SAR"`**. For any other currency a missing live rate yields `null`, and `data.ts` then degrades gracefully — the live spot price still shows (it's already in the display currency), but averages and the day's change become `null` ("—") rather than being converted at a wrong rate. In practice `/latest` always returns `currencies.USD`, so this is defensive.
+
+**Latest cache is keyed per currency** (`gold-latest-<currency>`) because price + rate are currency-specific; switching currency is a deliberate cache miss (one `/latest` request, then 12h TTL). History is USD-canonical and **shared across currencies** — switching currency never refetches history.
 
 ## Quota strategy (keep it inside 100 req/mo)
 
@@ -41,9 +45,9 @@ Lint/build/publish require the Raycast app installed and the user signed in.
 
 ## Interaction model (`gold-price.tsx`)
 
-- **Enter** on any row → copy a descriptive line (`Action.CopyToClipboard`), e.g. `Gold price today (24K): 483.54 SAR per gram` or `Gold price 1 Month average (22K): 451.20 SAR per gram` (currency label from `DEFAULT_CURRENCY`). Helpers `copyTextCurrent` / `copyTextAverage` in `gold-price.tsx`.
-- **⌘R** and **⌘↵** → hard refresh (bypasses caches/TTLs via a `forceRef` read inside the usePromise loader, passed as `loadGoldData(apiKey, force)`).
-- Karat dropdown (search-bar accessory) re-derives the averages client-side; no refetch.
+- **Enter** on any row → copy a descriptive line (`Action.CopyToClipboard`), e.g. `Gold price today (24K): 483.54 SAR per gram` or `Gold price 1 Month average (22K): 451.20 SAR per gram` (currency label = the selected `currency`). Helpers `copyTextCurrent` / `copyTextAverage` in `gold-price.tsx` take the currency.
+- **⌘R** and **⌘↵** → hard refresh (bypasses caches/TTLs via a `forceRef` read inside the usePromise loader, passed as `loadGoldData(apiKey, currency, force)`).
+- Karat dropdown (search-bar accessory) re-derives the averages client-side; no refetch. Currency is an extension **preference**, not an in-view dropdown (Raycast allows only one `searchBarAccessory`, already used by the karat dropdown); changing it re-runs the loader via the `[currency]` dep in `usePromise`.
 
 ## Publishing checklist
 

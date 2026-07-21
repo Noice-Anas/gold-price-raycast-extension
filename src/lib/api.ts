@@ -90,11 +90,16 @@ async function request<T>(path: string, apiKey: string, params: Record<string, s
  * Current gold spot price per troy ounce in the display currency, plus the live
  * USD->currency rate (from `currencies.USD` in the response, e.g. 3.75 for SAR),
  * which callers reuse to convert the USD-only historical series.
+ *
+ * `usdToLocalRate` is `null` when the response omits a usable rate: the SAR peg
+ * is a valid fallback only for SAR, so for any other currency a missing rate
+ * means we cannot convert history and callers must degrade (show no averages)
+ * rather than convert at a wrong rate.
  */
 export async function fetchLatestGold(
   apiKey: string,
   currency: string = DEFAULT_CURRENCY,
-): Promise<{ pricePerTroyOunce: number; usdToLocalRate: number; timestamp?: string }> {
+): Promise<{ pricePerTroyOunce: number; usdToLocalRate: number | null; timestamp?: string }> {
   const data = await request<LatestResponse>("/latest", apiKey, {
     currency,
     unit: "toz",
@@ -104,7 +109,8 @@ export async function fetchLatestGold(
     throw new MetalsDevError("metals.dev latest response did not include a gold price.");
   }
   const usdRate = data.currencies?.USD;
-  const usdToLocalRate = typeof usdRate === "number" && usdRate > 0 ? usdRate : SAR_PER_USD_PEG;
+  const liveRate = typeof usdRate === "number" && usdRate > 0 ? usdRate : null;
+  const usdToLocalRate = liveRate ?? (currency === "SAR" ? SAR_PER_USD_PEG : null);
   return { pricePerTroyOunce: gold, usdToLocalRate, timestamp: data.timestamp };
 }
 

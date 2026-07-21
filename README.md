@@ -2,7 +2,7 @@
 
 See the daily gold price **per gram** for the karats commonly quoted in Gulf gold markets — **24K, 22K, 21K, 18K** — along with **1-month, 3-month, 6-month, and 1-year averages**.
 
-> Prices are currently shown in **Saudi Riyal (SAR)**. A selectable display currency is planned.
+> Prices are shown in **Saudi Riyal (SAR)** by default. Pick a different **Display Currency** in the extension preferences (SAR, AED, KWD, QAR, BHD, OMR, USD, EUR, GBP).
 
 ## Features
 
@@ -10,6 +10,7 @@ See the daily gold price **per gram** for the karats commonly quoted in Gulf gol
 - **Daily change** vs. the previous close (on the 24K row).
 - **Period averages** (1M / 3M / 6M / 1Y) computed from real daily closes.
 - **Karat selector** — switch which karat the averages are shown for.
+- **Selectable display currency** — SAR, AED, KWD, QAR, BHD, OMR, USD, EUR, or GBP.
 - **Quota-friendly caching** so it stays comfortably inside the free API tier.
 
 ## Setup

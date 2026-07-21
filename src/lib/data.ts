@@ -10,11 +10,19 @@
  */
 
 import { LocalStorage } from "@raycast/api";
-import { fetchLatestGold, SAR_PER_USD_PEG } from "./api";
+import { fetchLatestGold } from "./api";
+import { DEFAULT_CURRENCY } from "./currency";
 import { AVERAGE_WINDOWS_DAYS, computeAverages, loadStoredSeries, syncSeries } from "./history";
 import { todayIso } from "./dates";
 
-const LATEST_KEY = "gold-latest";
+/**
+ * The spot-price cache is keyed per currency: `metals.gold` and the USD rate
+ * are both currency-specific, so switching currency must be a cache miss (else
+ * we'd show one currency's price labelled as another until the TTL expired).
+ * History stays USD-canonical and shared across currencies — no per-currency
+ * history cost.
+ */
+const latestKey = (currency: string) => `gold-latest-${currency}`;
 /**
  * Serve a cached spot price for this long before hitting the API again (ms).
  * This is a daily tracker, so hours of staleness is fine and it keeps casual
@@ -24,7 +32,8 @@ const LATEST_TTL_MS = 12 * 60 * 60 * 1000;
 
 interface CachedLatest {
   pricePerTroyOunce: number;
-  usdToLocalRate: number;
+  /** USD→currency rate, or null if unavailable (see `fetchLatestGold`). */
+  usdToLocalRate: number | null;
   timestamp?: string;
   cachedAt: number;
 }
@@ -54,8 +63,8 @@ export interface GoldData {
   historyError?: string;
 }
 
-async function loadCachedLatest(): Promise<CachedLatest | null> {
-  const raw = await LocalStorage.getItem<string>(LATEST_KEY);
+async function loadCachedLatest(currency: string): Promise<CachedLatest | null> {
+  const raw = await LocalStorage.getItem<string>(latestKey(currency));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as CachedLatest;
@@ -64,14 +73,16 @@ async function loadCachedLatest(): Promise<CachedLatest | null> {
   }
 }
 
-async function getLatest(apiKey: string, force: boolean): Promise<CachedLatest> {
-  const cached = await loadCachedLatest();
-  if (!force && cached && typeof cached.usdToLocalRate === "number" && Date.now() - cached.cachedAt < LATEST_TTL_MS) {
+async function getLatest(apiKey: string, currency: string, force: boolean): Promise<CachedLatest> {
+  const cached = await loadCachedLatest(currency);
+  // `usdToLocalRate !== undefined` skips caches written before the field existed
+  // (null is a valid cached value: rate genuinely unavailable for this currency).
+  if (!force && cached && cached.usdToLocalRate !== undefined && Date.now() - cached.cachedAt < LATEST_TTL_MS) {
     return cached;
   }
-  const { pricePerTroyOunce, usdToLocalRate, timestamp } = await fetchLatestGold(apiKey);
+  const { pricePerTroyOunce, usdToLocalRate, timestamp } = await fetchLatestGold(apiKey, currency);
   const fresh: CachedLatest = { pricePerTroyOunce, usdToLocalRate, timestamp, cachedAt: Date.now() };
-  await LocalStorage.setItem(LATEST_KEY, JSON.stringify(fresh));
+  await LocalStorage.setItem(latestKey(currency), JSON.stringify(fresh));
   return fresh;
 }
 
@@ -93,9 +104,13 @@ function previousCloseUsd(series: Record<string, number>): number | null {
  * bad chunk or timeseries not being on the user's plan — must not hide the
  * price. In that case we fall back to whatever history is already cached.
  */
-export async function loadGoldData(apiKey: string, force = false): Promise<GoldData> {
+export async function loadGoldData(
+  apiKey: string,
+  currency: string = DEFAULT_CURRENCY,
+  force = false,
+): Promise<GoldData> {
   // Kick off both together, but handle their failures separately.
-  const latestPromise = getLatest(apiKey, force);
+  const latestPromise = getLatest(apiKey, currency, force);
   const syncPromise = syncSeries(apiKey, { force }).then(
     (sync) => ({ series: sync.series as Record<string, number>, error: undefined as string | undefined }),
     async (err: Error) => ({ series: await loadStoredSeries(), error: err.message }),
@@ -104,18 +119,22 @@ export async function loadGoldData(apiKey: string, force = false): Promise<GoldD
   const latest = await latestPromise; // if this rejects, the whole load fails (no price to show)
   const { series, error } = await syncPromise;
 
-  const rate = latest.usdToLocalRate || SAR_PER_USD_PEG;
+  // No usable USD→currency rate: keep showing the live spot price (it comes
+  // straight from /latest in the display currency), but the USD history can't
+  // be converted, so averages and the day's change degrade to "no data".
+  const rate = latest.usdToLocalRate;
   const prevCloseUsd = previousCloseUsd(series);
   const averages: PeriodAverage[] = computeAverages(series).map((avg) => ({
     days: avg.days,
     sampleCount: avg.sampleCount,
-    averagePerTroyOunce: avg.averagePerTroyOunceUsd === null ? null : avg.averagePerTroyOunceUsd * rate,
+    averagePerTroyOunce:
+      avg.averagePerTroyOunceUsd === null || rate === null ? null : avg.averagePerTroyOunceUsd * rate,
   }));
 
   return {
     latestPerTroyOunce: latest.pricePerTroyOunce,
     asOf: latest.timestamp ?? new Date(latest.cachedAt).toISOString(),
-    previousClosePerTroyOunce: prevCloseUsd === null ? null : prevCloseUsd * rate,
+    previousClosePerTroyOunce: prevCloseUsd === null || rate === null ? null : prevCloseUsd * rate,
     averages,
     historyPoints: Object.keys(series).length,
     historyError: error,
