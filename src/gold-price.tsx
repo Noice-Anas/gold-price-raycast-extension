@@ -2,6 +2,7 @@ import {
   Action,
   ActionPanel,
   Color,
+  Form,
   Icon,
   Keyboard,
   List,
@@ -9,13 +10,13 @@ import {
   openExtensionPreferences,
 } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadGoldData } from "./lib/data";
+import { resolveApiKey, saveApiKey } from "./lib/apiKey";
 import { KARATS, Karat, pricePerGramForKarat } from "./lib/gold";
 import { DEFAULT_CURRENCY, formatCurrency } from "./lib/currency";
 
 interface Preferences {
-  apiKey: string;
   currency?: string;
 }
 
@@ -47,9 +48,8 @@ function formatAsOf(iso: string): string {
   return date.toLocaleString();
 }
 
-export default function Command() {
-  const { apiKey, currency: currencyPref } = getPreferenceValues<Preferences>();
-  const currency = currencyPref || DEFAULT_CURRENCY;
+function GoldPriceList({ apiKey, onEditKey }: { apiKey: string; onEditKey: () => void }) {
+  const currency = getPreferenceValues<Preferences>().currency || DEFAULT_CURRENCY;
   const [karat, setKarat] = useState<Karat>(24);
 
   // A hard refresh sets this flag so the next load bypasses the caches/TTLs.
@@ -91,6 +91,12 @@ export default function Command() {
         icon={Icon.ArrowClockwise}
         onAction={hardRefresh}
         shortcut={{ modifiers: ["cmd"], key: "return" }}
+      />
+      <Action
+        title="Set API Key"
+        icon={Icon.Key}
+        onAction={onEditKey}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "k" }}
       />
       <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
       <Action.OpenInBrowser title="Get / Manage API Key" url="https://metals.dev/pricing" />
@@ -203,4 +209,62 @@ export default function Command() {
       </List.Section>
     </List>
   );
+}
+
+/**
+ * In-app onboarding / re-entry form. Needed because the API key is an optional
+ * preference (see `lib/apiKey.ts`): Raycast won't force the preference prompt,
+ * so on first run — or after the Keychain-backed preference is lost — the user
+ * enters the key here and we persist it to LocalStorage.
+ */
+function ApiKeyForm({ initialValue, onSaved }: { initialValue: string; onSaved: (key: string) => void }) {
+  const [error, setError] = useState<string | undefined>();
+
+  async function handleSubmit(values: { apiKey: string }) {
+    const key = values.apiKey.trim();
+    if (!key) {
+      setError("API key is required");
+      return;
+    }
+    await saveApiKey(key);
+    onSaved(key);
+  }
+
+  return (
+    <Form
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm title="Save API Key" icon={Icon.Check} onSubmit={handleSubmit} />
+          <Action.OpenInBrowser title="Get an API Key" url="https://metals.dev/pricing" />
+        </ActionPanel>
+      }
+    >
+      <Form.Description text="Enter your free metals.dev API key. It's stored securely on this device and reused automatically." />
+      <Form.PasswordField
+        id="apiKey"
+        title="metals.dev API Key"
+        placeholder="Paste your API key"
+        defaultValue={initialValue}
+        error={error}
+        onChange={() => error && setError(undefined)}
+      />
+    </Form>
+  );
+}
+
+export default function Command() {
+  // `undefined` = still resolving; `null` = no key found anywhere (show form).
+  const [apiKey, setApiKey] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    resolveApiKey().then(setApiKey);
+  }, []);
+
+  if (apiKey === undefined) {
+    return <List isLoading />;
+  }
+  if (apiKey === null) {
+    return <ApiKeyForm initialValue="" onSaved={setApiKey} />;
+  }
+  return <GoldPriceList apiKey={apiKey} onEditKey={() => setApiKey(null)} />;
 }

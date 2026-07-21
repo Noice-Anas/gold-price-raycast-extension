@@ -22,9 +22,9 @@
     {
       "name": "apiKey",
       "title": "metals.dev API Key",
-      "description": "Your free metals.dev API key. Get one at https://metals.dev/pricing (free tier: 100 requests/month).",
+      "description": "Your free metals.dev API key. Get one at https://metals.dev/pricing (free tier: 100 requests/month). Leave blank to enter it in-app.",
       "type": "password",
-      "required": true
+      "required": false
     },
     {
       "name": "currency",

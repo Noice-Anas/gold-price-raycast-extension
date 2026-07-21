@@ -15,19 +15,30 @@ Lint/build/publish require the Raycast app installed and the user signed in.
 
 ## Data source: metals.dev
 
-- Free tier: **100 requests/month**, per-user API key (required preference `apiKey`). Historical is included in the free tier — it costs quota, not money.
+- Free tier: **100 requests/month**, per-user API key (optional preference `apiKey`, resolved durably — see below). Historical is included in the free tier — it costs quota, not money.
 - `GET /v1/latest?currency=<selected>&unit=toz` → `metals.gold` = spot per troy ounce, already in the display currency; `currencies.USD` = value of 1 USD in that currency (used to convert the USD-only history).
 - `GET /v1/timeseries?start_date&end_date` → **USD/toz only**, max **30 days per request**. Stored in USD and converted to the display currency downstream (see below).
 
 ## Architecture (`src/`)
 
-- `gold-price.tsx` — the single `view` command (List UI, karat dropdown).
+- `gold-price.tsx` — the single `view` command. Resolves the API key first (`resolveApiKey`); shows an in-app `ApiKeyForm` when none exists, else the List UI (karat dropdown). A "Set API Key" action (⌘⇧K) re-opens the form.
+- `lib/apiKey.ts` — durable API-key resolution (see below). `resolveApiKey()` / `saveApiKey(key)`, backed by LocalStorage key `metals-dev-api-key`.
 - `lib/gold.ts` — karat/troy-ounce math (pure).
 - `lib/dates.ts` — UTC ISO date helpers + 30-day chunking.
 - `lib/currency.ts` — `DEFAULT_CURRENCY` (fallback + preference default, `"SAR"`), `SUPPORTED_CURRENCIES` (dropdown list; mirror into `package.json`'s `currency` preference `data`), `formatCurrency(value, currency)`.
 - `lib/api.ts` — metals.dev client (`fetchLatestGold(apiKey, currency)` → `usdToLocalRate: number | null`, `fetchTimeseriesGoldUsd`).
 - `lib/history.ts` — rolling ~1-year daily series in LocalStorage; incremental sync + averages (`PeriodAverageUsd`, USD-canonical).
 - `lib/data.ts` — orchestrates latest (12h TTL cache, keyed per currency `gold-latest-<currency>`) + history sync into one load; converts to the display currency (`PeriodAverage`). `loadGoldData(apiKey, currency, force)`.
+
+## API key: durable, not just a preference
+
+The `apiKey` preference is a **`password` type**, which Raycast stores in the macOS Keychain. For a development/local extension that value is **not persisted reliably across sessions** — it silently disappears and re-prompts (observed after a dev-server session ended overnight). Store-installed extensions are expected to persist it fine, but we don't rely on that.
+
+So the preference is `required: false` and the key is resolved through `lib/apiKey.ts`:
+
+- **Preference wins**: a non-empty `apiKey` preference is used and **mirrored into LocalStorage** (`metals-dev-api-key`) as a backup — written before it can vanish.
+- **LocalStorage is the fallback / durable store**: if the preference is empty (first run, or lost), the stored copy is used. There is **no API to write back into a preference**, so once the preference is lost, LocalStorage is the source of truth.
+- **In-app form**: with `required: false`, Raycast won't force the prompt, so `gold-price.tsx` shows `ApiKeyForm` when `resolveApiKey()` returns `null`; submitting persists via `saveApiKey` to LocalStorage. LocalStorage is a local **encrypted** DB scoped to the extension.
 
 ## Currency: history is USD-canonical
 
